@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'home.dart';
 
 class DiseaseDetectionPage extends StatefulWidget {
   const DiseaseDetectionPage({Key? key}) : super(key: key);
@@ -12,6 +14,20 @@ class _DiseaseDetectionPageState extends State<DiseaseDetectionPage> {
   bool _isAnalyzing = false;
   String? _detectionResult;
 
+  Future<void> _signOut() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+        );
+      }
+    } catch (e) {
+      print('Error signing out: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -23,6 +39,22 @@ class _DiseaseDetectionPageState extends State<DiseaseDetectionPage> {
         ),
         backgroundColor: const Color(0xFF165920),
         elevation: 0,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: ElevatedButton(
+              onPressed: _signOut,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.yellow,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+              child: const Text("Sign Out"),
+            ),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(

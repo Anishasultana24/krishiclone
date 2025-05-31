@@ -307,6 +307,10 @@ class SignInPage extends StatelessWidget {
   Future<bool> login() async {
     try {
       print('Starting Google Sign-In process');
+
+      // Sign out from Google first to force account selection
+      await GoogleSignIn().signOut();
+
       final GoogleSignInAccount? gUser = await GoogleSignIn().signIn();
 
       if (gUser == null) {
