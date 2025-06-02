@@ -1,17 +1,391 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'home.dart';
 import 'disease_detection.dart';
 
-class SignInPage extends StatelessWidget {
+class SignInPage extends StatefulWidget {
   const SignInPage({Key? key}) : super(key: key);
+
+  @override
+  State<SignInPage> createState() => _SignInPageState();
+}
+
+class _SignInPageState extends State<SignInPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _otpController = TextEditingController();
+  final _emailVerificationController = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+  String? _verificationId;
+  bool _isOtpSent = false;
+  String _selectedCountryCode = '+91';
+
+  Future<void> _signInWithEmail() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final userCredential =
+          await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      if (userCredential.user != null && mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DiseaseDetectionPage()),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        switch (e.code) {
+          case 'user-not-found':
+            _errorMessage = 'No user found with this email.';
+            break;
+          case 'wrong-password':
+            _errorMessage = 'Wrong password provided.';
+            break;
+          case 'invalid-email':
+            _errorMessage = 'The email address is invalid.';
+            break;
+          default:
+            _errorMessage = 'An error occurred. Please try again.';
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'An error occurred. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _verifyPhoneNumber() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: '$_selectedCountryCode${_phoneController.text}',
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          await FirebaseAuth.instance.signInWithCredential(credential);
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => const DiseaseDetectionPage()),
+            );
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          setState(() {
+            _errorMessage = e.message ?? 'Verification failed';
+            _isLoading = false;
+          });
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          setState(() {
+            _verificationId = verificationId;
+            _isOtpSent = true;
+            _isLoading = false;
+          });
+          _showOTPDialog();
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          setState(() {
+            _verificationId = verificationId;
+            _isLoading = false;
+          });
+        },
+      );
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'An error occurred. Please try again.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _verifyOTP() async {
+    if (_verificationId == null) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: _verificationId!,
+        smsCode: _otpController.text,
+      );
+
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DiseaseDetectionPage()),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message ?? 'Invalid OTP';
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'An error occurred. Please try again.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _sendEmailVerification() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await FirebaseAuth.instance.sendSignInLinkToEmail(
+        email: _emailController.text.trim(),
+        actionCodeSettings: ActionCodeSettings(
+          url: 'https://krishirakshak.page.link/verify',
+          handleCodeInApp: true,
+          androidPackageName: 'com.example.krishiclone',
+          androidInstallApp: true,
+          androidMinimumVersion: '1',
+        ),
+      );
+
+      if (mounted) {
+        Navigator.pop(context); // Close the email dialog
+        _showVerificationCodeDialog();
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to send verification email. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showEmailDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter Email'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                hintText: "Enter your email",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: _isLoading ? null : _sendEmailVerification,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.yellow,
+              foregroundColor: Colors.black,
+            ),
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Verify'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showVerificationCodeDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter Verification Code'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _emailVerificationController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                hintText: "Enter verification code",
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: _isLoading ? null : _verifyEmailCode,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.yellow,
+              foregroundColor: Colors.black,
+            ),
+            child: _isLoading
+                ? const CircularProgressIndicator()
+                : const Text('Verify'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _verifyEmailCode() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Verify the email link
+      final emailLink =
+          'https://krishirakshak.page.link/verify?code=${_emailVerificationController.text}';
+      if (await FirebaseAuth.instance.isSignInWithEmailLink(emailLink)) {
+        await FirebaseAuth.instance.signInWithEmailLink(
+          email: _emailController.text.trim(),
+          emailLink: emailLink,
+        );
+
+        if (mounted) {
+          Navigator.pop(context); // Close the verification dialog
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+                builder: (context) => const DiseaseDetectionPage()),
+          );
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Invalid verification code';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to verify code. Please try again.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showOTPDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Enter OTP'),
+        content: TextField(
+          controller: _otpController,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            hintText: "Enter OTP",
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _verifyOTP();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.yellow,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Verify'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _phoneController.dispose();
+    _otpController.dispose();
+    _emailVerificationController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: const Color.fromARGB(255, 174, 213, 84),
       body: Stack(
         children: [
@@ -31,13 +405,13 @@ class SignInPage extends StatelessWidget {
           ),
 
           // Top Row
-          SafeArea(
+          const SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     "KRISHI\nRAKSHAK",
                     style: TextStyle(
                       color: Colors.white,
@@ -46,17 +420,6 @@ class SignInPage extends StatelessWidget {
                       letterSpacing: 1.2,
                     ),
                   ),
-                  ElevatedButton(
-                    onPressed: () {},
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.yellow,
-                      foregroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    child: const Text("Sign In"),
-                  ),
                 ],
               ),
             ),
@@ -64,7 +427,7 @@ class SignInPage extends StatelessWidget {
 
           // Content
           Padding(
-            padding: const EdgeInsets.only(top: 180, left: 24, right: 24),
+            padding: const EdgeInsets.only(top: 110, left: 24, right: 24),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
@@ -94,6 +457,8 @@ class SignInPage extends StatelessWidget {
                       ),
                     ),
                     TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.email_outlined),
                         hintText: "olivia@untitledui.com",
@@ -107,13 +472,58 @@ class SignInPage extends StatelessWidget {
                   ],
                 ),
 
-                const SizedBox(height: 8),
-                const Text("or login with",
+                const SizedBox(height: 16),
+
+                // Password Input
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4, bottom: 8),
+                      child: Text(
+                        "Password",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        hintText: "Enter your password",
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+
+                if (_errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      _errorMessage!,
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+
+                const SizedBox(height: 5),
+
+                const Text("or sign in with",
                     style: TextStyle(color: Colors.white70)),
 
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
 
-                // Phone Input
+                // Phone Number Input
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -137,7 +547,7 @@ class SignInPage extends StatelessWidget {
                           ),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
-                              value: '+91',
+                              value: _selectedCountryCode,
                               isExpanded: true,
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 12),
@@ -149,13 +559,21 @@ class SignInPage extends StatelessWidget {
                                 DropdownMenuItem(
                                     value: '+44', child: Text('🇬🇧 +44')),
                               ],
-                              onChanged: (value) {},
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() {
+                                    _selectedCountryCode = value;
+                                  });
+                                }
+                              },
                             ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextFormField(
+                            controller: _phoneController,
+                            keyboardType: TextInputType.phone,
                             decoration: InputDecoration(
                               hintText: "000-000-0000",
                               border: OutlineInputBorder(
@@ -163,6 +581,17 @@ class SignInPage extends StatelessWidget {
                               ),
                               filled: true,
                               fillColor: Colors.white,
+                              suffixIcon: TextButton(
+                                onPressed:
+                                    _isLoading ? null : _verifyPhoneNumber,
+                                child: const Text(
+                                  "Send",
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -170,18 +599,37 @@ class SignInPage extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
 
-                const Text(
-                  "This is a hint text to help user.",
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                const SizedBox(height: 16),
+
+// Sign In Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _signInWithEmail,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.yellow,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _isLoading
+                        ? const CircularProgressIndicator()
+                        : const Text(
+                            "Sign In",
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
                 ),
 
-                const SizedBox(height: 8),
-                const Text("or sign up with",
-                    style: TextStyle(color: Colors.white70)),
-
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
 
                 // Social Buttons
                 Row(
@@ -211,6 +659,7 @@ class SignInPage extends StatelessWidget {
                           text: "Sign up here",
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
+                            fontSize: 18,
                             color: Colors.white,
                           ),
                         ),
@@ -224,14 +673,14 @@ class SignInPage extends StatelessWidget {
 
           // Bottom Plant Image
           Positioned(
-            bottom: -5, // lowered ellipse shape
+            bottom: -5,
             left: 0,
             right: 0,
             child: Stack(
               alignment: Alignment.bottomCenter,
               children: [
                 Container(
-                  height: 200,
+                  height: 180,
                   width: 700,
                   decoration: const BoxDecoration(
                     color: Color(0xFF0B3A2B),
@@ -241,10 +690,10 @@ class SignInPage extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.only(top: 40),
+                  padding: const EdgeInsets.only(top: 10),
                   child: Image.asset(
                     'assets/images/capsul.png',
-                    height: 320,
+                    height: 250,
                     fit: BoxFit.contain,
                   ),
                 ),
@@ -274,14 +723,18 @@ class SignInPage extends StatelessWidget {
 
     return ElevatedButton(
       onPressed: () async {
-        bool isLogged = await login();
-
-        if (isLogged) {
-          Navigator.pushReplacement(
+        if (text == "Email") {
+          _showEmailDialog();
+        } else {
+          bool isLogged = await login();
+          if (isLogged) {
+            Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (context) => const DiseaseDetectionPage(),
-              ));
+              ),
+            );
+          }
         }
       },
       style: ElevatedButton.styleFrom(
